@@ -41,7 +41,11 @@ async function run() {
             res.send(result)
         })
 
-       
+       app.get('/products/latest-products', async(req,res) => {
+        const cursor = productsCollection.find().sort({created_at: -1});
+        const result = await cursor.toArray();
+        res.send(result);
+       })
 
 
         app.post('/users', async (req, res) => {
