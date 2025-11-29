@@ -118,11 +118,19 @@ async function run() {
             res.send(result)
         })
 
+        app.delete('/bids/:id', async(req,res) => {
+            const id = req.params.id;
+            const query = {_id : new ObjectId(id)};
+            const result = await bidsCollection.deleteOne(id)
+            res.send(result)
+        })
+
         app.get('/product/bids/:productId', async(req,res) => {
             const productId = req.params.productId;
             const query = {product: productId};
-            const cursor = bidsCollection.find(query).sort({bid_price: 1});
+            const cursor = bidsCollection.find(query);
             const result = await cursor.toArray();
+            result.sort((a, b) => parseFloat(b.bid_price) - parseFloat(a.bid_price));
             res.send(result);
         })
 
