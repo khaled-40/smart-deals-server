@@ -20,7 +20,7 @@ admin.initializeApp({
 app.use(cors());
 app.use(express.json());
 // console.log(process.env)
-// JMb2dI1mv3koV8ZX
+
 const verifyFirebaseToken = async (req, res, next) => {
     console.log('in the middleware', req.headers.authorization);
     if (!req.headers.authorization) {
@@ -42,6 +42,7 @@ const verifyFirebaseToken = async (req, res, next) => {
     catch {
         return res.status(401).send({ message: 'unauthorized access' })
     }
+    // next();
 }
 const verifyJWTToken = async (req, res, next) => {
     console.log('in the middleware', req.headers.authorization);
@@ -126,15 +127,15 @@ async function run() {
 
 
 
-        app.get('/bids', verifyJWTToken, async (req, res) => {
+        app.get('/bids', verifyFirebaseToken, async (req, res) => {
             // console.log('headers', req.headers)
             const email = req.query.email;
             const query = {};
             if (email) {
                 query.buyer_email = email
             }
-            if(req.token_email !== email) {
-                return res.status(403).send({message: 'forbidden access'})
+            if (req.token_email !== email) {
+                return res.status(403).send({ message: 'forbidden access' })
             }
             const cursor = bidsCollection.find(query);
             const result = await cursor.toArray();
@@ -166,7 +167,8 @@ async function run() {
             res.send(result)
         })
 
-        app.post('/products', async (req, res) => {
+        app.post('/products', verifyFirebaseToken, async (req, res) => {
+            console.log(req.headers)
             const newProduct = req.body;
             const result = await productsCollection.insertOne(newProduct);
             res.send(result)
@@ -206,7 +208,7 @@ async function run() {
             res.send(result)
         })
 
-        app.get('/product/bids/:productId', verifyFirebaseToken, async (req, res) => {
+        app.get('/product/bids/:productId', async (req, res) => {
             const productId = req.params.productId;
             const query = { product: productId };
             const cursor = bidsCollection.find(query);
