@@ -9,7 +9,8 @@ const port = process.env.PORT || 3000;
 
 
 
-const serviceAccount = require("./smart-deals-86bb6-firebase-adminsdk-fbsvc-0b2ef10fc4.json");
+const decoded = Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8");
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -76,161 +77,167 @@ const client = new MongoClient(uri, {
     }
 });
 
-async function run() {
-    try {
-        await client.connect();
+// These will be set on first request
+let productsCollection, bidsCollection, usersCollection;
 
-        const db = client.db('smartDB');
-        const productsCollection = db.collection('products');
-        const bidsCollection = db.collection('bids');
-        const usersCollection = db.collection('users');
+async function getCollections() {
+    if (productsCollection) return { productsCollection, bidsCollection, usersCollection };
 
-
-        app.get('/products', async (req, res) => {
-            // const projectFields = {title:1 , price_min:1, email:1}
-            // const cursor = productsCollection.find().sort({price_min: -1}).skip(2).limit(5).project(projectFields);
-
-            console.log(req.query)
-
-
-            const cursor = productsCollection.find();
-            const result = await cursor.toArray();
-            res.send(result)
-        })
-
-        app.post('/getToken', (req, res) => {
-            const loggedUser = req.body;
-            var token = jwt.sign(loggedUser, process.env.JWT_SECRET, { expiresIn: '1h' });
-            res.send({ token: token })
-        })
-
-        app.get('/latest-products', async (req, res) => {
-            const cursor = productsCollection.find().sort({ created_at: -1 }).limit(6);
-            const result = await cursor.toArray();
-            res.send(result);
-        })
-
-
-        app.post('/users', async (req, res) => {
-            const newUser = req.body;
-            const email = req.body.email;
-            const query = { email: email };
-            const existingUser = await usersCollection.findOne(query);
-            if (existingUser) {
-                res.send({ message: 'user already exist' });
-            }
-            else {
-                const result = await usersCollection.insertOne(newUser);
-                res.send(result);
-            }
-        })
-
-
-
-        app.get('/bids', verifyFirebaseToken, async (req, res) => {
-            // console.log('headers', req.headers)
-            const email = req.query.email;
-            const query = {};
-            if (email) {
-                query.buyer_email = email
-            }
-            if (req.token_email !== email) {
-                return res.status(403).send({ message: 'forbidden access' })
-            }
-            const cursor = bidsCollection.find(query);
-            const result = await cursor.toArray();
-            res.send(result);
-        })
-
-        // verify token with firebase 
-        // app.get('/bids',verifyFirebaseToken, async (req, res) => {
-        //     console.log('headers', req.headers)
-        //     const email = req.query.email;
-        //     const query = {};
-        //     if (email) {
-        //         query.buyer_email = email
-        //     }
-        //     if(email !== req.token_email) {
-        //         return res.status(403).send({message: 'forbidden access'})
-        //     }
-        //     const cursor = bidsCollection.find(query);
-        //     const result = await cursor.toArray();
-        //     res.send(result);
-        // })
-
-        app.get('/products/:id', async (req, res) => {
-            const id = req.params.id;
-            console.log(id)
-            const query = { _id: id };
-            const result = await productsCollection.findOne(query);
-            console.log(result)
-            res.send(result)
-        })
-
-        app.post('/products', verifyFirebaseToken, async (req, res) => {
-            console.log(req.headers)
-            const newProduct = req.body;
-            const result = await productsCollection.insertOne(newProduct);
-            res.send(result)
-        })
-
-        app.patch('/products/:id', async (req, res) => {
-            const id = req.params.id;
-            const newProduct = req.body;
-            const query = { _id: new ObjectId(id) };
-            const update = {
-                $set: {
-                    name: newProduct.name,
-                    price: newProduct.price
-                }
-            };
-            const result = await productsCollection.updateOne(query, update);
-            res.send(result);
-        })
-
-        app.delete('/products/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await productsCollection.deleteOne(query);
-            res.send(result)
-        })
-
-        app.post('/bids', async (req, res) => {
-            const newBid = req.body;
-            const result = await bidsCollection.insertOne(newBid);
-            res.send(result)
-        })
-
-        app.delete('/bids/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await bidsCollection.deleteOne(query)
-            res.send(result)
-        })
-
-        app.get('/product/bids/:productId', async (req, res) => {
-            const productId = req.params.productId;
-            const query = { product: productId };
-            const cursor = bidsCollection.find(query);
-            const result = await cursor.toArray();
-            result.sort((a, b) => parseFloat(b.bid_price) - parseFloat(a.bid_price));
-            res.send(result);
-        })
-
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
-    }
-    finally {
-
-    }
+    await client.connect();
+    const db = client.db('smartDB');
+    productsCollection = db.collection('products');
+    bidsCollection = db.collection('bids');
+    usersCollection = db.collection('users');
+    console.log('MongoDB connected (reused on next calls)');
+    return { productsCollection, bidsCollection, usersCollection };
 }
-
-run().catch(console.dir)
 
 app.get('/', (req, res) => {
     res.send('simple server is running')
 })
 
-app.listen(port, () => {
-    console.log(`simple server is running on port ${port}`)
+app.get('/products', async (req, res) => {
+    // const projectFields = {title:1 , price_min:1, email:1}
+    // const cursor = productsCollection.find().sort({price_min: -1}).skip(2).limit(5).project(projectFields);
+
+    console.log(req.query)
+
+    const { productsCollection } = await getCollections();
+    const cursor = productsCollection.find();
+    const result = await cursor.toArray();
+    res.send(result)
 })
+
+app.post('/getToken', (req, res) => {
+    const loggedUser = req.body;
+    var token = jwt.sign(loggedUser, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.send({ token: token })
+})
+
+app.get('/latest-products', async (req, res) => {
+    const { productsCollection } = await getCollections();
+    const cursor = productsCollection.find().sort({ created_at: -1 }).limit(6);
+    const result = await cursor.toArray();
+    res.send(result);
+})
+
+
+app.post('/users', async (req, res) => {
+    const { usersCollection } = await getCollections();
+    const newUser = req.body;
+    const email = req.body.email;
+    const query = { email: email };
+    const existingUser = await usersCollection.findOne(query);
+    if (existingUser) {
+        res.send({ message: 'user already exist' });
+    }
+    else {
+        const result = await usersCollection.insertOne(newUser);
+        res.send(result);
+    }
+})
+
+
+
+app.get('/bids', verifyFirebaseToken, async (req, res) => {
+    const { bidsCollection } = await getCollections();
+    // console.log('headers', req.headers)
+    const email = req.query.email;
+    const query = {};
+    if (email) {
+        query.buyer_email = email
+    }
+    if (req.token_email !== email) {
+        return res.status(403).send({ message: 'forbidden access' })
+    }
+    const cursor = bidsCollection.find(query);
+    const result = await cursor.toArray();
+    res.send(result);
+})
+
+// verify token with firebase 
+// app.get('/bids',verifyFirebaseToken, async (req, res) => {
+//     console.log('headers', req.headers)
+//     const email = req.query.email;
+//     const query = {};
+//     if (email) {
+//         query.buyer_email = email
+//     }
+//     if(email !== req.token_email) {
+//         return res.status(403).send({message: 'forbidden access'})
+//     }
+//     const cursor = bidsCollection.find(query);
+//     const result = await cursor.toArray();
+//     res.send(result);
+// })
+
+app.get('/products/:id', async (req, res) => {
+    const { productsCollection } = await getCollections();
+    const id = req.params.id;
+    console.log(id)
+    const query = { _id: id };
+    const result = await productsCollection.findOne(query);
+    console.log(result)
+    res.send(result)
+})
+
+app.post('/products', verifyFirebaseToken, async (req, res) => {
+    const { productsCollection } = await getCollections();
+    console.log(req.headers)
+    const newProduct = req.body;
+    const result = await productsCollection.insertOne(newProduct);
+    res.send(result)
+})
+
+app.patch('/products/:id', async (req, res) => {
+    const { productsCollection } = await getCollections();
+    const id = req.params.id;
+    const newProduct = req.body;
+    const query = { _id: new ObjectId(id) };
+    const update = {
+        $set: {
+            name: newProduct.name,
+            price: newProduct.price
+        }
+    };
+    const result = await productsCollection.updateOne(query, update);
+    res.send(result);
+})
+
+app.delete('/products/:id', async (req, res) => {
+    const { productsCollection } = await getCollections();
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await productsCollection.deleteOne(query);
+    res.send(result)
+})
+
+app.post('/bids', async (req, res) => {
+    const { bidsCollection } = await getCollections();
+    const newBid = req.body;
+    const result = await bidsCollection.insertOne(newBid);
+    res.send(result)
+})
+
+app.delete('/bids/:id', async (req, res) => {
+    const { bidsCollection } = await getCollections();
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await bidsCollection.deleteOne(query)
+    res.send(result)
+})
+
+app.get('/product/bids/:productId', async (req, res) => {
+    const { bidsCollection } = await getCollections();
+    const productId = req.params.productId;
+    const query = { product: productId };
+    const cursor = bidsCollection.find(query);
+    const result = await cursor.toArray();
+    result.sort((a, b) => parseFloat(b.bid_price) - parseFloat(a.bid_price));
+    res.send(result);
+})
+
+// app.listen(port, () => {
+//     console.log(`simple server is running on port ${port}`)
+// })
+module.exports = app;
